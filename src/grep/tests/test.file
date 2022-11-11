@@ -1,0 +1,24 @@
+#include "s21_grep.h"
+
+int main(int argc, char *argv[]) {
+  grep_t *grep = init_grep(argc, argv);
+
+  printf("grep template: %s\n\n", grep->template);
+
+  for (int i = 0; i < grep->filenames_len; i++) {
+    printf("grep file -> <<%s>>\n\n", grep->filenames[i]);
+    char *file_contents = read_file(grep->filenames[i]);
+    char *pch = strtok(file_contents, "\n");
+
+    while (pch != NULL) {
+      if (strstr(pch, grep->template)) printf("%s\n", pch);
+      pch = strtok(NULL, "\n");
+    }
+
+    free(file_contents);
+  }
+
+  free(grep->filenames);
+  free(grep);
+  return 0;
+}

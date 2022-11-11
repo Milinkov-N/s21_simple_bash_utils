@@ -1,0 +1,212 @@
+#include "s21_grep.h"
+
+void find_matches(grep_t *grep, regex_t *regex);
+void print_count_matched_lines(grep_t *grep, char *filename, int count);
+void print_match(grep_t *grep, match_t *match, char *filename);
+char *precede_linenum(enopt_t *enopt, char *line, int line_num);
+void process_file(char *filename, grep_t *grep, regex_t *regex,
+                  matches_t *matches);
+void regerr_print(regex_t *regex, int err_code, int line);
+void parse_flags(enopt_t *enopt, char *arg, int argi);
+
+grep_t *init_grep(args_t *args, enopt_t *enopt) {
+  grep_t *grep = malloc(sizeof(grep_t));
+  strvec_t *patterns = init_strvec(2);
+  strvec_t *filenames = init_strvec(4);
+
+  if (grep != NULL && patterns != NULL && filenames != NULL) {
+    if (enopt->pattern_indexes != NULL)
+      for (int i = 0; i < enopt->pattern_indexes->len; i++)
+        strvec_push(patterns, args->v[enopt->pattern_indexes->data[i]]);
+
+    for (int i = 1; i < args->len; i++) {
+      if (!starts_with("-", args->v[i]) && !patterns->len)
+        strvec_push(patterns, args->v[i]);
+      else if (!starts_with("-", args->v[i]) &&
+               !starts_with("-e", args->v[i - 1]) && patterns->len)
+        strvec_push(filenames, args->v[i]);
+    }
+
+    grep->patterns = patterns;
+    grep->filenames = filenames;
+    grep->enopt = enopt;
+  }
+
+  return grep;
+}
+
+void run_grep(grep_t *grep) {
+  if (grep != NULL) {
+    for (int i = 0; i < grep->patterns->len; i++) {
+      regex_t regex;
+      char *pat = grep->enopt->ignore_case == TRUE
+                      ? tolower_str(grep->patterns->data[i])
+                      : grep->patterns->data[i];
+
+      if (regcomp(&regex, pat, 0)) {
+        fprintf(stderr, "Could not compile pattern: %s\n", pat);
+        continue;
+      }
+
+      find_matches(grep, &regex);
+
+      if (grep->enopt->ignore_case) free(pat);
+      regfree(&regex);
+    }
+  }
+}
+
+void grep_debug(grep_t *grep) {
+  if (grep != NULL && grep->enopt != NULL) {
+    for (int i = 0; i < grep->patterns->len; i++)
+      printf("pattern %d: %s\n", i + 1, grep->patterns->data[i]);
+
+    for (int i = 0; i < grep->filenames->len; i++)
+      printf("filename %d: %s\n", i + 1, grep->filenames->data[i]);
+
+    for (int i = 0; i < grep->enopt->pattern_indexes->len; i++)
+      printf("pattern_index %d: [%d]\n", i + 1,
+             grep->enopt->pattern_indexes->data[i]);
+  }
+}
+
+void delete_grep(grep_t *grep) {
+  if (grep != NULL) {
+    delete_strvec(grep->patterns, 0);
+    delete_strvec(grep->filenames, 0);
+    delete_enopt(grep->enopt);
+    free(grep);
+  }
+}
+
+enopt_t get_enopt(args_t *args) {
+  enopt_t enopt = {0};
+  intvec_t *pattern_indexes = init_intvec(4);
+
+  if (pattern_indexes != NULL) enopt.pattern_indexes = pattern_indexes;
+
+  for (int i = 1; i < args->len; i++)
+    if (starts_with("-", args->v[i])) parse_flags(&enopt, args->v[i], i);
+
+  return enopt;
+}
+
+void delete_enopt(enopt_t *enopt) {
+  if (enopt != NULL && enopt->pattern_indexes != NULL)
+    delete_intvec(enopt->pattern_indexes);
+}
+
+void find_matches(grep_t *grep, regex_t *regex) {
+  for (int i = 0; i < grep->filenames->len; i++) {
+    matches_t *matches = init_matches(48);
+
+    if (matches != NULL) {
+      process_file(grep->filenames->data[i], grep, regex, matches);
+
+      if (grep->enopt->count_matched_lines)
+        print_count_matched_lines(grep, grep->filenames->data[i], matches->len);
+      else if (grep->enopt->matched_files && matches->len > 0)
+        printf("%s\n", grep->filenames->data[i]);
+      else
+        for (int m = 0; m < matches->len; m++)
+          print_match(grep, &matches->data[m], grep->filenames->data[i]);
+
+      delete_matches(matches);
+    }
+  }
+}
+
+void print_count_matched_lines(grep_t *grep, char *filename, int count) {
+  if (grep->filenames->len == 1)
+    printf("%d\n", count);
+  else if (grep->filenames->len > 1)
+    printf("%s:%d\n", filename, count);
+}
+
+void print_match(grep_t *grep, match_t *match, char *filename) {
+  char *line = precede_linenum(grep->enopt, match->line, match->line_num);
+
+  if (grep->filenames->len == 1) {
+    printf("%s\n", line);
+  } else if (grep->filenames->len > 1) {
+    if (grep->enopt->dont_precede_filenames)
+      printf("%s\n", line);
+    else
+      printf("%s:%s\n", filename, line);
+  }
+
+  free(line);
+}
+
+char *precede_linenum(enopt_t *enopt, char *line, int line_num) {
+  char *new_line = malloc((strlen(line) + 32) * sizeof(char));
+
+  if (new_line != NULL) {
+    if (enopt->precede_linenum)
+      sprintf(new_line, "%d:%s", line_num, line);
+    else
+      sprintf(new_line, "%s", line);
+  }
+
+  return new_line;
+}
+
+void process_file(char *filename, grep_t *grep, regex_t *regex,
+                  matches_t *matches) {
+  char *file_contents = read_file(filename);
+  char *pch = mstrtok(file_contents, "\n");
+  int line = 1;
+
+  while (pch != NULL) {
+    char *str = grep->enopt->ignore_case == TRUE ? tolower_str(pch) : pch;
+    int match_res = regexec(regex, str, 0, NULL, 0);
+
+    if (!grep->enopt->invert_match && !match_res)
+      matches_push(matches, new_match(pch, line));
+    else if (grep->enopt->invert_match && match_res == REG_NOMATCH)
+      matches_push(matches, new_match(pch, line));
+    else if (!grep->enopt->invert_match && match_res != REG_NOMATCH)
+      regerr_print(regex, match_res, line);
+
+    if (grep->enopt->ignore_case) free(str);
+    pch = mstrtok(NULL, "\n");
+    line++;
+  }
+
+  free(file_contents);
+}
+
+void regerr_print(regex_t *regex, int err_code, int line) {
+  char err_buf[256];
+  regerror(err_code, regex, err_buf, sizeof(err_buf));
+  fprintf(stderr, "Regex match failed for line %d: %s\n", line, err_buf);
+}
+
+void parse_flags(enopt_t *enopt, char *arg, int argi) {
+  for (int j = 0; j < (int)strlen(arg); j++) {
+    switch (arg[j]) {
+      case 'e':
+        if (enopt->pattern_indexes != NULL)
+          intvec_push(enopt->pattern_indexes, argi + 1);
+        break;
+      case 'i':
+        enopt->ignore_case = TRUE;
+        break;
+      case 'v':
+        enopt->invert_match = TRUE;
+        break;
+      case 'c':
+        enopt->count_matched_lines = TRUE;
+        break;
+      case 'l':
+        enopt->matched_files = TRUE;
+        break;
+      case 'n':
+        enopt->precede_linenum = TRUE;
+        break;
+      case 'h':
+        enopt->dont_precede_filenames = TRUE;
+        break;
+    }
+  }
+}
