@@ -38,7 +38,6 @@
 s21_cat
 s21_grep
 **/tests/run
-src/run.sh
 
 # Debug files
 RESULT_VALGRIND.*
