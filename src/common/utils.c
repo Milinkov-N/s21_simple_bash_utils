@@ -3,19 +3,27 @@
 char *read_file(const char *filename) {
   FILE *fp = {0};
   int bytes = 256;
-  char *file_contents = calloc(bytes, sizeof(char));
+  char *file_contents = {0};
 
-  if (file_contents != NULL) {
-    if ((fp = fopen(filename, "r"))) {
+  if ((file_contents = calloc(bytes, sizeof(char))) != NULL) {
+    if ((fp = fopen(filename, "r")) != NULL) {
       char ch;
       int i = 0;
 
       while ((ch = getc(fp)) != EOF) {
-        if (i == bytes)
-          file_contents =
-              safe_realloc(file_contents, (bytes *= 2) * sizeof(char));
+        if (i + 1 == bytes) {
+          char *tmp = {0};
+          int new_size = bytes * 2;
 
-        file_contents[i++] = ch;
+          if ((tmp = calloc(new_size, sizeof(char))) != NULL) {
+            for (int j = 0; j < i; j++) tmp[j] = file_contents[j];
+            free(file_contents);
+            file_contents = tmp;
+            bytes = new_size;
+          }
+        }
+
+        if (file_contents != NULL) file_contents[i++] = ch;
       }
 
       fclose(fp);
@@ -86,6 +94,13 @@ int starts_with(const char *pre, const char *str) {
   return lenstr < lenpre ? 0 : memcmp(pre, str, lenpre) == 0;
 }
 
+int ends_with(const char *pre, const char *str) {
+  size_t lenpre = strlen(pre);
+  size_t lenstr = strlen(str);
+
+  return lenstr < lenpre ? 0 : memcmp(pre, str + lenstr - lenpre, lenpre) == 0;
+}
+
 char *tolower_str(char *str) {
   char *lowercase_str = strdup(str);
   char *iter_ptr = lowercase_str;
@@ -96,10 +111,11 @@ char *tolower_str(char *str) {
 }
 
 void *safe_realloc(void *ptr, size_t new_size) {
+  (void)new_size;
   if (ptr != NULL) {
-    void *tmp = {0};
+    void *tmp = realloc(ptr, new_size);
 
-    if ((tmp = realloc(ptr, new_size)) != NULL) {
+    if (tmp != NULL) {
       ptr = tmp;
     } else {
       free(ptr);

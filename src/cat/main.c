@@ -1,7 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
 
-#include "../common/args.h"
-#include "../common/vec.h"
 #include "s21_cat.h"
 
 bool_t cond(const char *curr_arg);
@@ -12,13 +11,10 @@ int main(int argc, char *argv[]) {
 
   if (filenames != NULL) {
     for (int i = 0; i < filenames->len && filenames->data != NULL; i++) {
-      char *file_contents = read_file(filenames->data[i]);
+      char *file_contents = {0};
 
-      if (file_contents != NULL) {
-        if (options != NULL) {
-          apply_options(options, file_contents);
-        }
-
+      if ((file_contents = read_file(filenames->data[i])) != NULL) {
+        apply_options(options, file_contents);
         free(file_contents);
       } else {
         fprintf(stderr, "s21_cat: %s: No such file or directory\n",
@@ -26,10 +22,7 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    if (options != NULL) {
-      free(options);
-    }
-
+    if (options != NULL) free(options);
     delete_strvec(filenames, 0);
   }
 

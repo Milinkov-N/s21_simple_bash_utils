@@ -22,9 +22,10 @@ char *read_file(const char *filename);
 char *mstrtok(char *str, const char *delim);
 char *str_replace(char *orig, const char *rep, const char *with);
 int starts_with(const char *pre, const char *str);
+int ends_with(const char *pre, const char *str);
 char *tolower_str(char *str);
 
 void *safe_realloc(void *ptr, size_t new_size);
 void bubble_sort(int *arr, int len);
 
-#endif  // SRC_COMMON_UTILS_H_
+#endif // SRC_COMMON_UTILS_H_

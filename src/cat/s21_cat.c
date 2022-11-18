@@ -7,6 +7,13 @@ options_t *get_options(int argc, char **argv) {
     bool_t result_lflags = TRUE;
     bool_t result_sflags = TRUE;
 
+    options->num_nonblank = FALSE;
+    options->mark_eol = FALSE;
+    options->num_all = FALSE;
+    options->squeeze_blank = FALSE;
+    options->mark_tabs = FALSE;
+    options->mark_nonprintable = FALSE;
+
     for (int i = 1; i < argc && argv; i++) {
       if (starts_with("--", argv[i]))
         result_lflags = parse_long_flags(options, argv[i]);
@@ -84,29 +91,34 @@ bool_t parse_short_flags(options_t *options, char *arg) {
 }
 
 void apply_options(options_t *options, char *str) {
-  char *result = strdup(str);
+  if (options != NULL) {
+    char *result = {0};
+    if (str != NULL) result = strdup(str);
 
-  if (result != NULL) {
-    if (options->squeeze_blank) result = squeeze_blank(result);
-    if (options->mark_nonprintable) result = mark_nonprintable(result);
+    if (result != NULL && options->squeeze_blank)
+      result = squeeze_blank(result);
+    if (result != NULL && options->mark_nonprintable)
+      result = mark_nonprintable(result);
 
-    if (options->mark_tabs) {
+    if (result != NULL && options->mark_tabs) {
       result = mark_nonprintable(result);
       result = mark_tabs(result);
     }
 
-    if (options->num_nonblank)
+    if (result != NULL && options->num_nonblank)
       result = number_lines(result, number_nonblank);
-    else if (options->num_all)
+    else if (result != NULL && options->num_all)
       result = number_lines(result, number_all);
 
-    if (options->mark_eol) {
+    if (result != NULL && options->mark_eol) {
       result = mark_nonprintable(result);
       result = mark_eol(result);
     }
 
-    printf("%s", result);
-    free(result);
+    if (result != NULL) {
+      printf("%s", result);
+      free(result);
+    }
   }
 }
 
@@ -115,8 +127,8 @@ char *number_lines(char *input, void(cb)(char *, char *, int *, char, int *)) {
   char *buf = {0};
 
   if (input != NULL) {
-    output = calloc(strlen(input) * 2, sizeof(char));
-    buf = calloc(strlen(input), sizeof(char));
+    output = calloc((strlen(input) * 2) + 15, sizeof(char));
+    buf = calloc(strlen(input) + 1, sizeof(char));
   }
 
   if (output != NULL && buf != NULL) {
@@ -159,7 +171,9 @@ void number_all(char *output, char *buf, int *buf_len, char ch, int *line) {
 }
 
 char *squeeze_blank(char *input) {
-  char *output = calloc(strlen(input) * 2, sizeof(char));
+  char *output = {0};
+
+  if (input != NULL) output = calloc(strlen(input) * 2, sizeof(char));
 
   if (output != NULL) {
     int eol_count = 0;
@@ -180,6 +194,7 @@ char *squeeze_blank(char *input) {
   free(input);
   return output;
 }
+
 char *mark_nonprintable(char *input) {
   char *output = input;
 

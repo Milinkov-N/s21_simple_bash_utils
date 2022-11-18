@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=
 ERR_FLAGS=-Wall -Wextra -Werror
-SOURCES=../common/vec.c ../common/utils.c ../common/args.c main.c s21_cat.c
+SOURCES=main.c s21_cat.c ../common/vec.c ../common/utils.c ../common/args.c
 BIN=s21_cat
 TEST_BIN=tests/run
 

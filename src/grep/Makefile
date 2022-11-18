@@ -1,5 +1,5 @@
 CC=gcc
-SOURCES=main.c s21_grep.c matches.c ../common/vec.c ../common/utils.c ../common/args.c 
+SOURCES=main.c s21_grep.c matches.c ../common/vec.c ../common/utils.c ../common/args.c
 CFLAGS=
 ERR_FLAGS=-Wall -Wextra -Werror
 BIN=s21_grep

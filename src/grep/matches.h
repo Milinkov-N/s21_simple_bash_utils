@@ -29,4 +29,4 @@ void matches_push(matches_t *matches, match_t *new_elem);
 void matches_sort(matches_t *matches);
 void delete_matches(matches_t *matches);
 
-#endif  // SRC_GREP_MATCHES_H_
+#endif // SRC_GREP_MATCHES_H_

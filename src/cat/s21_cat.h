@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../common/args.h"
 #include "../common/utils.h"
 #include "../common/vec.h"
 
@@ -35,4 +36,4 @@ char *mark_nonprintable(char *input);
 char *mark_eol(char *input);
 char *mark_tabs(char *input);
 
-#endif  // SRC_CAT_S21_CAT_H_
+#endif // SRC_CAT_S21_CAT_H_

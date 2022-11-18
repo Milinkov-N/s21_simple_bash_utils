@@ -37,9 +37,9 @@ void delete_strvec(strvec_t *vec, int delete_mode) {
 }
 
 intvec_t *init_intvec(int capacity) {
-  intvec_t *vec = malloc(sizeof(intvec_t));
+  intvec_t *vec = {0};
 
-  if (vec != NULL) {
+  if ((vec = malloc(sizeof(intvec_t))) != NULL) {
     int *temp = {0};
     vec->cap = capacity;
     vec->len = 0;

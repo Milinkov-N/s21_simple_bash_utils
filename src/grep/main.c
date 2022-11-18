@@ -1,5 +1,3 @@
-#include <stdio.h>
-
 #include "s21_grep.h"
 
 int main(int argc, char *argv[]) {
@@ -11,5 +9,6 @@ int main(int argc, char *argv[]) {
     delete_grep(grep);
   }
 
+  // delete_options(options);
   return 0;
 }

@@ -30,4 +30,4 @@ intvec_t *init_intvec(int capacity);
 void intvec_push(intvec_t *vec, int new_elem);
 void delete_intvec(intvec_t *vec);
 
-#endif  // SRC_COMMON_VEC_H_
+#endif // SRC_COMMON_VEC_H_

@@ -13,7 +13,7 @@ grep_t *init_grep(int argc, char **argv, options_t *options) {
       grep->options = options;
 
       if (parse_regfiles(argv, options, patterns)) {
-        parse_patterns(argv, options, patterns);
+        parse_patterns(argc, argv, options, patterns);
         parse_filenames(argc, argv, filenames, patterns);
       } else {
         delete_grep(grep);
@@ -47,13 +47,23 @@ bool_t read_regfile(char *filename, options_t *options, strvec_t *patterns) {
   char *file_contents = read_file(filename);
 
   if (file_contents != NULL) {
-    char *pch = strtok(file_contents, "\n");
+    char buf[1024] = {0};
+    int len = 0;
 
-    while (pch != NULL) {
-      char *str = strdup(pch);
-      strvec_push(patterns, str);
-      pch = strtok(NULL, " \n");
+    for (int i = 0; i < (int)strlen(file_contents); i++) {
+      if (file_contents[i] == '\n' && len == 0) {
+        options->_dump_all = TRUE;
+        i = (int)strlen(file_contents);
+      } else if (file_contents[i] == '\n' && len > 0) {
+        strvec_push(patterns, strdup(buf));
+        for (int j = 0; j < len; j++) buf[j] = 0;
+        len = 0;
+      } else {
+        buf[len++] = file_contents[i];
+      }
     }
+
+    if (len != 0 && !options->_dump_all) strvec_push(patterns, strdup(buf));
 
     free(file_contents);
   } else if (!options->suppress_errors) {
@@ -64,7 +74,17 @@ bool_t read_regfile(char *filename, options_t *options, strvec_t *patterns) {
   return result;
 }
 
-void parse_patterns(char **argv, options_t *options, strvec_t *patterns) {
+void parse_patterns(int argc, char **argv, options_t *options,
+                    strvec_t *patterns) {
+  for (int i = 0; i < argc; i++) {
+    int len = (int)strlen(argv[i]);
+
+    if (starts_with("-", argv[i]) && len > 2)
+      for (int j = 0; j < len; j++)
+        if (argv[i][j] == 'e' && j + 1 < len)
+          strvec_push(patterns, strdup(&argv[i][j + 1]));
+  }
+
   if (options->pattern_indexes != NULL)
     for (int i = 0; i < options->pattern_indexes->len; i++)
       strvec_push(patterns, strdup(argv[options->pattern_indexes->data[i]]));
@@ -75,8 +95,12 @@ void parse_filenames(int argc, char **argv, strvec_t *filenames,
   for (int i = 1; i < argc; i++) {
     if (!starts_with("-", argv[i]) && !patterns->len)
       strvec_push(patterns, strdup(argv[i]));
-    else if (!starts_with("-", argv[i]) && !starts_with("-f", argv[i - 1]) &&
-             !starts_with("-e", argv[i - 1]) && patterns->len)
+    else if (!starts_with("-", argv[i]) &&
+             (!(starts_with("-", argv[i - 1]) &&
+                ends_with("f", argv[i - 1]))) &&
+             (!(starts_with("-", argv[i - 1]) &&
+                ends_with("e", argv[i - 1]))) &&
+             patterns->len)
       strvec_push(filenames, argv[i]);
   }
 }
@@ -90,35 +114,47 @@ void run_grep(grep_t *grep) {
 void process_file(char *filename, grep_t *grep) {
   char *file_contents = read_file(filename);
 
+  if (grep->options->_dump_all && file_contents != NULL) {
+    printf("%s", file_contents);
+    free(file_contents);
+    file_contents = NULL;
+  }
+
   if (file_contents != NULL) {
     matches_t *matches = init_matches(48);
-    regex_t regex;
-    regmatch_t pmatch[2];
-    char *pch = mstrtok(file_contents, "\n");
+    regex_t regex = {0};
+    regmatch_t pmatch[2] = {0};
+    char buf[1024] = {0};
+    int len = 0;
     int line = 1;
 
-    while (pch != NULL) {
-      bool_t is_match = FALSE;
-
-      process_patterns(grep, matches, &regex, pmatch, pch, line, &is_match);
-
-      pch = mstrtok(NULL, "\n");
-      line++;
+    for (int i = 0; i < (int)strlen(file_contents); i++) {
+      if (file_contents[i] == '\n') {
+        process_patterns(grep, matches, &regex, pmatch, buf, line);
+        for (int j = 0; j < len; j++) buf[j] = 0;
+        len = 0;
+        line++;
+      } else {
+        buf[len++] = file_contents[i];
+      }
     }
+
+    if (len != 0) process_patterns(grep, matches, &regex, pmatch, buf, line);
 
     matches_sort(matches);
     print_matches(filename, grep, matches);
 
     delete_matches(matches);
     free(file_contents);
-  } else if (!grep->options->suppress_errors) {
+  } else if (!grep->options->suppress_errors && !grep->options->_dump_all) {
     fprintf(stderr, "s21_grep: %s: No such file or directory\n", filename);
   }
 }
 
 void process_patterns(grep_t *grep, matches_t *matches, regex_t *regex,
-                      regmatch_t *pmatch, char *line, int line_num,
-                      bool_t *is_match) {
+                      regmatch_t *pmatch, char *line, int line_num) {
+  bool_t is_match = FALSE;
+
   for (int j = 0; j < grep->patterns->len; j++) {
     char *str = grep->options->ignore_case == TRUE ? tolower_str(line) : line;
     char *pat = grep->options->ignore_case == TRUE
@@ -133,50 +169,80 @@ void process_patterns(grep_t *grep, matches_t *matches, regex_t *regex,
 
     int match_res = regexec(regex, str, 2, pmatch, 0);
 
+    if (grep->options->matched_parts && !grep->options->invert_match &&
+        !match_res)
+      push_regmatch(pmatch, regex, matches, line, line_num);
     if (!match_res)
-      *is_match = TRUE;
-    else if (match_res == REG_NOMATCH && (!*is_match))
-      *is_match = FALSE;
+      is_match = TRUE;
+    else if (match_res == REG_NOMATCH && (!is_match))
+      is_match = FALSE;
 
     if (grep->options->ignore_case) free(str);
     free(pat);
     regfree(regex);
   }
 
-  if (grep->options->matched_parts && *is_match)
-    push_regmatch(pmatch, matches, line, line_num);
-  else if (!grep->options->invert_match && *is_match)
+  if (!grep->options->invert_match && is_match)
     matches_push(matches, new_match(line, line_num));
-  else if (grep->options->invert_match && (!*is_match) == REG_NOMATCH)
+  else if (grep->options->invert_match && (!is_match) == REG_NOMATCH)
     matches_push(matches, new_match(line, line_num));
 }
 
-void push_regmatch(regmatch_t *pmatch, matches_t *matches, char *str,
-                   int line) {
-  int matched_part_len = (int)(pmatch[0].rm_eo - pmatch[0].rm_so);
-  char *matched_part = calloc(matched_part_len, sizeof(char));
+void push_regmatch(regmatch_t *pmatch, regex_t *regex, matches_t *matches,
+                   char *str, int line) {
+  char *start_pos = str;
+  int match_res = 0;
+  int matches_count = 0;
 
-  if (matched_part != NULL) {
-    sprintf(matched_part, "%.*s", matched_part_len, &str[pmatch[0].rm_so]);
-    matches_push(matches, new_match(matched_part, line));
-    free(matched_part);
+  char matched_part[1024] = {0};
+
+  while (!match_res && pmatch[0].rm_eo != pmatch[0].rm_so) {
+    int matched_part_len = (int)(pmatch[0].rm_eo - pmatch[0].rm_so);
+    if (matches_count == 0)
+      sprintf(&matched_part[strlen(matched_part)], "%.*s", matched_part_len,
+              start_pos + pmatch[0].rm_so);
+    else
+      sprintf(&matched_part[strlen(matched_part)], "\n%.*s", matched_part_len,
+              start_pos + pmatch[0].rm_so);
+
+    start_pos += pmatch[0].rm_eo;
+    match_res = regexec(regex, start_pos, 2, pmatch, REG_NOTBOL);
+
+    matches_count++;
   }
+
+  matches_push(matches, new_match(matched_part, line));
 }
 
 void print_matches(char *filename, grep_t *grep, matches_t *matches) {
   if (matches != NULL) {
-    if (grep->options->count_matched_lines && grep->options->matched_files) {
+    if (grep->options->count_matched_lines && grep->options->matched_files)
+      print_cl_combo(grep, filename, grep->filenames->len, matches->len);
+    else if (grep->options->count_matched_lines)
       print_count_matched_lines(grep, filename, matches->len);
+    else if (grep->options->matched_files && matches->len > 0)
       printf("%s\n", filename);
-    } else if (grep->options->count_matched_lines) {
-      print_count_matched_lines(grep, filename, matches->len);
-    } else if (grep->options->matched_files && matches->len > 0) {
-      printf("%s\n", filename);
-    } else {
+    else
       for (int m = 0; m < matches->len; m++)
         print_match(grep, matches->data[m], filename);
-    }
   }
+}
+
+void print_cl_combo(grep_t *grep, char *filename, int filenames_len,
+                    int matches_len) {
+  if (grep->options->dont_precede_filenames || filenames_len == 1) {
+    if (matches_len > 0)
+      printf("1\n");
+    else
+      printf("0\n");
+  } else if (filenames_len > 1) {
+    if (matches_len > 0)
+      printf("%s:1\n", filename);
+    else
+      printf("%s:0\n", filename);
+  }
+
+  if (matches_len > 0) printf("%s\n", filename);
 }
 
 void print_count_matched_lines(grep_t *grep, char *filename, int count) {
@@ -226,7 +292,7 @@ void delete_grep(grep_t *grep) {
 options_t *get_options(int argc, char **argv) {
   options_t *options = {0};
 
-  if ((options = malloc(sizeof(options_t))) != NULL) {
+  if ((options = calloc(1, sizeof(options_t))) != NULL) {
     intvec_t *pattern_indexes = init_intvec(4);
     intvec_t *regfiles_indexes = init_intvec(4);
 
@@ -235,7 +301,7 @@ options_t *get_options(int argc, char **argv) {
       options->regfiles_indexes = regfiles_indexes;
 
       for (int i = 1; i < argc; i++)
-        if (starts_with("-", argv[i])) parse_flags(options, argv[i], i);
+        if (starts_with("-", argv[i])) parse_flags(options, argc, argv[i], i);
     } else {
       free(options);
       options = NULL;
@@ -255,15 +321,17 @@ void delete_options(options_t *options) {
   }
 }
 
-void parse_flags(options_t *options, char *arg, int argi) {
+void parse_flags(options_t *options, int argc, char *arg, int argi) {
   for (int j = 0; j < (int)strlen(arg); j++) {
     switch (arg[j]) {
       case 'e':
-        if (options->pattern_indexes != NULL)
+        if (j + 1 != (int)strlen(arg))
+          j = (int)strlen(arg);
+        else if (options->pattern_indexes != NULL && argi < argc - 1)
           intvec_push(options->pattern_indexes, argi + 1);
         break;
       case 'f':
-        if (options->regfiles_indexes != NULL)
+        if (options->regfiles_indexes != NULL && argi < argc - 1)
           intvec_push(options->regfiles_indexes, argi + 1);
         break;
       case 'i':
